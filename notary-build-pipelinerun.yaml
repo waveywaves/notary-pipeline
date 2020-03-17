@@ -1,0 +1,18 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineRun
+metadata:
+  name: notary-build-pipelinerun-1
+spec:
+  serviceAccountName: build-bot
+  pipelineRef:
+    name: notary-pipeline
+  resources:
+    - name: source-repo
+      resourceRef:
+        name: notary-git
+    - name: notary-server-image
+      resourceRef:
+        name: notary-server-image
+    - name: notary-signer-image
+      resourceRef: 
+        name: notary-signer-image

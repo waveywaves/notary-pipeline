@@ -1,0 +1,116 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata: 
+  name: notary-git 
+spec:
+  type: git
+  params:
+    - name: url
+      value: https://github.com/theupdateframework/notary
+    - name: revision
+      value: master
+---
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: notary-server-image
+spec:
+  type: image
+  params:
+    - name: url
+      value: docker.io/waveywaves/notary-server
+---
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: notary-signer-image
+spec:
+  type: image
+  params:
+    - name: url
+      value: docker.io/waveywaves/notary-signer
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: build-notary-images-from-git-source
+spec:
+  resources:
+    inputs:
+      - name: docker-source
+        type: git
+    outputs:
+      - name: notary-server-image
+        type: image
+      - name: notary-signer-image
+        type: image
+
+  params:
+    - name: pathToNotaryServerDockerFile
+      type: string
+      description: The path to the server dockerfile to build
+      default: server.Dockerfile
+    - name: pathToNotarySignerDockerFile
+      type: string
+      description: The path to the signer dockerfile to build
+      default: signer.Dockerfile
+    - name: pathToContext
+      type: string
+      description: |
+        The build context used by Kaniko
+        (https://github.com/GoogleContainerTools/kaniko#kaniko-build-contexts)
+  steps:
+    - name: build-and-push-server
+      image: gcr.io/kaniko-project/executor:v0.17.1
+      # specifying DOCKER_CONFIG is required to allow kaniko to detect docker credential
+      env:
+        - name: "DOCKER_CONFIG"
+          value: "/tekton/home/.docker/"
+      command:
+        - /kaniko/executor
+      args:
+        - --dockerfile=$(params.pathToNotaryServerDockerFile)
+        - --destination=$(resources.outputs.notary-server-image.url)
+        - --context=$(params.pathToContext)
+    - name: build-and-push-signer
+      image: gcr.io/kaniko-project/executor:v0.17.0
+      # specifying DOCKER_CONFIG is required to allow kaniko to detect docker credential
+      env:
+        - name: "DOCKER_CONFIG"
+          value: "/tekton/home/.docker/"
+      command:
+        - /kaniko/executor
+      args:
+        - --dockerfile=$(params.pathToNotarySignerDockerFile)
+        - --destination=$(resources.outputs.notary-signer-image.url)
+        - --context=$(params.pathToContext)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: notary-pipeline
+spec:
+  resources:
+    - name: source-repo
+      type: git
+    - name: notary-server-image
+      type: image
+    - name: notary-signer-image
+      type: image
+  tasks:
+    - name: build-notary-images
+      taskRef:
+        name: build-notary-images-from-git-source
+      params:
+        - name: pathToContext
+          value: /workspace/docker-source/
+      resources:
+        inputs:
+          - name: docker-source
+            resource: source-repo
+        outputs:
+          - name: notary-server-image
+            resource: notary-server-image
+          - name: notary-signer-image
+            resource: notary-signer-image
+      
